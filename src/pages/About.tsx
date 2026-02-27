@@ -44,7 +44,7 @@ const About = () => {
       {/* Hero */}
       <section className="gradient-hero py-20">
         <div className="container text-center">
-          <h1 className="text-4xl md:text-5xl font-bold text-primary-foreground mb-4">About TaskFlow</h1>
+          <h1 className="text-4xl md:text-5xl font-bold text-primary-foreground mb-4">About nextgig</h1>
           <p className="text-xl text-primary-foreground/80 max-w-2xl mx-auto">
             Connecting talented freelancers with clients who need quality work done
           </p>
@@ -57,7 +57,7 @@ const About = () => {
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl font-bold mb-6">Our Mission</h2>
             <p className="text-lg text-muted-foreground leading-relaxed">
-              TaskFlow was built to bridge the gap between talented freelancers and clients 
+              nextgig was built to bridge the gap between talented freelancers and clients 
               who need quality work. We believe everyone deserves access to opportunity, 
               regardless of where they are in the world. Our platform makes it easy to 
               find, hire, and pay skilled professionals securely.

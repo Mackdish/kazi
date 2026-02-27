@@ -234,7 +234,7 @@ const Index = () => {
               Ready to Get Started?
             </h2>
             <p className="text-primary-foreground/80 mb-8">
-              Join thousands of clients and freelancers already using TaskFlow to get work done.
+              Join thousands of clients and freelancers already using nextgig to get work done.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/register">

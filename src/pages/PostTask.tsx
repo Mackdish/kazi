@@ -26,9 +26,12 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { toast } from "sonner";
-import { ArrowLeft, DollarSign, Calendar, Info, Loader2 } from "lucide-react";
+import { ArrowLeft, DollarSign, Calendar, Info, Loader2, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { DepositPaymentModal } from "@/components/dashboard/DepositPaymentModal";
+import { calculateTaskDeposit, formatCurrency, useTaskDeposit } from "@/hooks/useTaskDeposit";
 
 const taskSchema = z.object({
   title: z
@@ -70,6 +73,10 @@ const PostTask = () => {
   const { user } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
+  const [taskForm, setTaskForm] = useState<TaskFormValues | null>(null);
+  const { initiatePayment, isProcessing } = useTaskDeposit();
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskSchema),
@@ -81,6 +88,9 @@ const PostTask = () => {
       deadline: "",
     },
   });
+
+  const budget = form.watch("budget");
+  const depositAmount = budget ? calculateTaskDeposit(Number(budget)) : 0;
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -107,24 +117,65 @@ const PostTask = () => {
       return;
     }
 
-    const { error } = await supabase.from("tasks").insert({
-      client_id: user.id,
-      title: values.title.trim(),
-      description: values.description.trim(),
-      category_id: values.category_id,
-      budget: Number(values.budget),
-      deadline: new Date(values.deadline).toISOString(),
-      status: "open",
-    });
+    // Step 1: Create the task first
+    const { data: taskData, error: taskError } = await supabase
+      .from("tasks")
+      .insert({
+        client_id: user.id,
+        title: values.title.trim(),
+        description: values.description.trim(),
+        category_id: values.category_id,
+        budget: Number(values.budget),
+        deadline: new Date(values.deadline).toISOString(),
+        status: "open",
+      })
+      .select()
+      .single();
 
-    if (error) {
-      console.error("Error creating task:", error);
-      toast.error(error.message || "Failed to create task");
+    if (taskError) {
+      console.error("Error creating task:", taskError);
+      toast.error(taskError.message || "Failed to create task");
       return;
     }
 
-    toast.success("Task posted successfully! Freelancers can now submit bids.");
-    navigate("/dashboard/client");
+    if (!taskData?.id) {
+      toast.error("Failed to create task");
+      return;
+    }
+
+    // Step 2: Store task info and show deposit modal
+    setCreatedTaskId(taskData.id);
+    setTaskForm(values);
+    setShowDepositModal(true);
+  };
+
+  const handlePaymentSelected = async (method: "stripe" | "mpesa" | "paypal") => {
+    if (!createdTaskId || !taskForm) return;
+
+    try {
+      const depositAmount = calculateTaskDeposit(Number(taskForm.budget));
+      
+      // Initiate payment (this creates the deposit record and transaction)
+      const result = await initiatePayment(method);
+
+      if (result?.ok) {
+        // In a real implementation, we would redirect to the payment provider
+        // For now, show a success message indicating the flow
+        toast.success(
+          `Payment initiated for ${formatCurrency(depositAmount)}. Redirecting to ${method.toUpperCase()}...`
+        );
+
+        // Simulate payment success (in production, this comes from payment provider callback)
+        setTimeout(() => {
+          setShowDepositModal(false);
+          toast.success("Task posted successfully! Freelancers can now submit bids.");
+          navigate("/dashboard/client");
+        }, 2000);
+      }
+    } catch (error: any) {
+      console.error("Payment error:", error);
+      toast.error(error?.message || "Failed to process payment");
+    }
   };
 
   return (
@@ -270,6 +321,22 @@ const PostTask = () => {
                     />
                   </div>
 
+                  {/* Deposit Information */}
+                  {budget && depositAmount > 0 && (
+                    <Alert className="border-emerald-200 bg-emerald-50">
+                      <AlertCircle className="h-4 w-4 text-emerald-600" />
+                      <AlertDescription className="text-emerald-800">
+                        <p className="font-semibold mb-1">50% Deposit Required</p>
+                        <p>
+                          A deposit of{" "}
+                          <span className="font-bold text-lg">{formatCurrency(depositAmount)}</span>{" "}
+                          will be collected when you post this task. It will be held in escrow and
+                          released to the freelancer upon completion.
+                        </p>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   <div className="bg-muted rounded-lg p-4 flex gap-3">
                     <Info className="h-5 w-5 text-primary shrink-0 mt-0.5" />
                     <div className="text-sm">
@@ -302,7 +369,7 @@ const PostTask = () => {
                           Posting...
                         </>
                       ) : (
-                        "Post Task"
+                        "Post Task & Pay Deposit"
                       )}
                     </Button>
                   </div>
@@ -312,6 +379,17 @@ const PostTask = () => {
           </Card>
         </div>
       </div>
+
+      {/* Deposit Payment Modal */}
+      <DepositPaymentModal
+        open={showDepositModal}
+        onOpenChange={setShowDepositModal}
+        taskTitle={taskForm?.title || ""}
+        budget={Number(taskForm?.budget) || 0}
+        depositAmount={depositAmount}
+        onPaymentSelected={handlePaymentSelected}
+        isLoading={isProcessing}
+      />
 
       <Footer />
     </div>

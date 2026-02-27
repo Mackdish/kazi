@@ -72,7 +72,7 @@ const Login = () => {
               </div>
             </div>
             <CardTitle className="text-2xl">Welcome Back</CardTitle>
-            <CardDescription>Sign in to your TaskFlow account</CardDescription>
+            <CardDescription>Sign in to your nextgig account</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">

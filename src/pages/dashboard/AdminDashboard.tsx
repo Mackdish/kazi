@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdminTaskManagement from "@/components/admin/AdminTaskManagement";
+import ClientFreelancerManagement from "@/components/admin/ClientFreelancerManagement";
 // removed mock data imports — fetching live data from Supabase
 import {
   Users,
@@ -242,64 +244,7 @@ const AdminDashboard = () => {
           </TabsList>
 
           <TabsContent value="users" className="space-y-6">
-            <div className="grid lg:grid-cols-3 gap-6">
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle>Recent Users</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {(recentUsersLoading ? new Array(3).fill(null) : recentUsers || []).map((user, idx) =>
-                      user ? (
-                        <div key={user.user_id} className="flex items-center justify-between p-4 rounded-lg border">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                              {user.full_name?.[0] || user.user_id[0]}
-                            </div>
-                            <div>
-                              <p className="font-medium">{user.full_name || user.user_id}</p>
-                              <p className="text-sm text-muted-foreground">Joined {new Date(user.created_at).toLocaleDateString()}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant="secondary">User</Badge>
-                            <Button variant="ghost" size="sm">
-                              <Ban className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div key={idx} className="p-4 rounded-lg border h-16" />
-                      )
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>User Stats</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Total Users</span>
-                    <span className="font-semibold">{usersLoading ? "..." : totalUsersCount}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Active Tasks</span>
-                    <span className="font-semibold">{tasksLoading ? "..." : activeTasksCount}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Pending Withdrawals</span>
-                    <span className="font-semibold">{withdrawalsLoading ? "..." : pendingWithdrawals?.length || 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Platform Revenue</span>
-                    <span className="font-semibold">{revenueLoading ? "..." : `$${(totalRevenue || 0).toLocaleString()}`}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <ClientFreelancerManagement />
           </TabsContent>
 
           <TabsContent value="payments" className="space-y-6">
@@ -366,14 +311,7 @@ const AdminDashboard = () => {
           </TabsContent>
 
           <TabsContent value="tasks">
-            <Card>
-              <CardHeader>
-                <CardTitle>Task Management</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">Task management interface coming soon...</p>
-              </CardContent>
-            </Card>
+            <AdminTaskManagement />
           </TabsContent>
 
           <TabsContent value="disputes">

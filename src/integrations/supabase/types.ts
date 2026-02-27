@@ -374,11 +374,90 @@ export type Database = {
         }
         Relationships: []
       }
+      task_deposits: {
+        Row: {
+          created_at: string
+          client_id: string
+          deposit_amount: number
+          external_reference: string | null
+          id: string
+          original_budget: number
+          paid_at: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_status: string
+          task_id: string
+          transaction_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          client_id: string
+          deposit_amount: number
+          external_reference?: string | null
+          id?: string
+          original_budget: number
+          paid_at?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_status?: string
+          task_id: string
+          transaction_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          client_id?: string
+          deposit_amount?: number
+          external_reference?: string | null
+          id?: string
+          original_budget?: number
+          paid_at?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_status?: string
+          task_id?: string
+          transaction_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "task_deposits_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: true
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "task_deposits_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "task_deposits_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      accept_bid_admin: {
+        Args: { _bid_id: string }
+        Returns: { ok: boolean; task_id: string; bid_id: string }
+      }
+      confirm_deposit_payment: {
+        Args: { _task_id: string; _external_reference: string }
+        Returns: Json
+      }
+      get_task_deposit: {
+        Args: { _task_id: string }
+        Returns: Array<{ deposit_amount: number; original_budget: number; payment_status: string }>
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -393,14 +472,24 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       is_bid_owner: { Args: { _bid_id: string }; Returns: boolean }
       is_client: { Args: never; Returns: boolean }
+      is_deposit_paid: { Args: { _task_id: string }; Returns: boolean }
       is_freelancer: { Args: never; Returns: boolean }
       is_task_owner: { Args: { _task_id: string }; Returns: boolean }
+      process_task_deposit: {
+        Args: {
+          _task_id: string
+          _deposit_amount: number
+          _payment_method: Database["public"]["Enums"]["payment_method"]
+          _external_reference?: string | null
+        }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "client" | "freelancer"
       bid_status: "pending" | "accepted" | "rejected" | "cancelled"
       escrow_status: "pending" | "held" | "released" | "refunded"
-      payment_method: "stripe" | "mpesa"
+      payment_method: "stripe" | "mpesa" | "paypal"
       task_status: "open" | "in_progress" | "completed" | "cancelled"
       withdrawal_status: "requested" | "processing" | "completed" | "failed"
     }
@@ -533,7 +622,7 @@ export const Constants = {
       app_role: ["admin", "client", "freelancer"],
       bid_status: ["pending", "accepted", "rejected", "cancelled"],
       escrow_status: ["pending", "held", "released", "refunded"],
-      payment_method: ["stripe", "mpesa"],
+      payment_method: ["stripe", "mpesa", "paypal"],
       task_status: ["open", "in_progress", "completed", "cancelled"],
       withdrawal_status: ["requested", "processing", "completed", "failed"],
     },

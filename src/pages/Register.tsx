@@ -97,7 +97,7 @@ const Register = () => {
               </div>
             </div>
             <CardTitle className="text-2xl">Create Account</CardTitle>
-            <CardDescription>Join TaskFlow and start your journey</CardDescription>
+            <CardDescription>Join nextgig and start your journey</CardDescription>
           </CardHeader>
           <CardContent>
             {/* Role Selection */}
