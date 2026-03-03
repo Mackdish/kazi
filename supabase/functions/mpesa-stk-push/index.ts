@@ -6,29 +6,101 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function getMpesaAccessToken(): Promise<string> {
-  const consumerKey = Deno.env.get("MPESA_CONSUMER_KEY")!;
-  const consumerSecret = Deno.env.get("MPESA_CONSUMER_SECRET")!;
-  const credentials = btoa(`${consumerKey}:${consumerSecret}`);
+const BID_AMOUNT = 30; // Fixed bid amount in KES
 
-  const baseUrl = Deno.env.get("MPESA_ENV") === "production"
-    ? "https://api.safaricom.co.ke"
-    : "https://sandbox.safaricom.co.ke";
+// Tuma API Configuration
+const TUMA_API_BASE = "https://api.tuma.co.ke";
+const TUMA_API_KEY = Deno.env.get("TUMA_API_KEY");
 
-  const res = await fetch(
-    `${baseUrl}/oauth/v1/generate?grant_type=client_credentials`,
-    { headers: { Authorization: `Basic ${credentials}` } }
-  );
-
-  if (!res.ok) throw new Error(`Failed to get M-Pesa token: ${res.statusText}`);
-  const data = await res.json();
-  return data.access_token;
+// Validate environment variables at startup
+if (!Deno.env.get("SUPABASE_URL") || !Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) {
+  console.error("Missing required Supabase environment variables");
 }
 
-function getTimestamp(): string {
-  const now = new Date();
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+if (!TUMA_API_KEY) {
+  console.error("Missing TUMA_API_KEY environment variable");
+}
+
+function formatPhone(phone: string): string {
+  let formatted = phone.replace(/\D/g, "");
+
+  if (formatted.startsWith("0")) {
+    formatted = "254" + formatted.substring(1);
+  } else if (formatted.startsWith("7")) {
+    formatted = "254" + formatted;
+  }
+
+  if (!formatted.startsWith("254") || formatted.length !== 12) {
+    throw new Error("Invalid phone number format");
+  }
+
+  return formatted;
+}
+
+async function initiateTumaStkPush(
+  phoneNumber: string,
+  paymentId: string,
+  amount: number
+): Promise<{ request_id: string; message: string; status: string }> {
+  const formattedPhone = formatPhone(phoneNumber);
+
+  // Get Supabase project URL for callback
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  if (!supabaseUrl) {
+    throw new Error("SUPABASE_URL not configured");
+  }
+
+  const payload = {
+    phone_number: formattedPhone,
+    amount: amount,
+    reference: `BidFee-${paymentId.substring(0, 8)}`,
+    description: "Bid Fee Payment",
+    callback_url: `${supabaseUrl}/functions/v1/tuma-callback`,
+  };
+
+  console.log("Initiating Tuma STK Push:", { 
+    phone_number: formattedPhone, 
+    amount, 
+    reference: payload.reference 
+  });
+
+  const response = await fetch(`${TUMA_API_BASE}/stk-push`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${TUMA_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("Tuma API error:", { 
+      status: response.status, 
+      data 
+    });
+    throw new Error(
+      `Tuma API error: ${data?.error_description || data?.message || "Unknown error"}`
+    );
+  }
+
+  // Validate Tuma response structure
+  if (!data?.request_id) {
+    console.error("Invalid Tuma response:", data);
+    throw new Error("Invalid Tuma API response: missing request_id");
+  }
+
+  console.log("Tuma STK Push successful:", { 
+    request_id: data.request_id,
+    status: data.status
+  });
+
+  return {
+    request_id: data.request_id,
+    message: data.message || "STK push initiated successfully",
+    status: data.status || "pending",
+  };
 }
 
 Deno.serve(async (req) => {
@@ -37,89 +109,150 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { phone_number, task_id, user_id, payment_id } = await req.json();
-
-    if (!phone_number || !task_id || !user_id || !payment_id) {
+    // Check required environment variables
+    if (!TUMA_API_KEY) {
+      console.error("TUMA_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "Missing required fields" }),
+        JSON.stringify({ error: "Payment service not configured" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error("Invalid JSON in request body:", parseError.message);
+      return new Response(
+        JSON.stringify({ error: "Invalid request body" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Format phone number to 254... format
-    let formattedPhone = phone_number.replace(/\s+/g, "").replace(/^0/, "254").replace(/^\+/, "");
-    if (!formattedPhone.startsWith("254")) {
-      formattedPhone = `254${formattedPhone}`;
+    const { phone_number, payment_id, user_id } = requestBody;
+
+    // Validate input
+    if (!phone_number || !payment_id || !user_id) {
+      return new Response(
+        JSON.stringify({ error: "Missing required fields: phone_number, payment_id, user_id" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    const shortcode = Deno.env.get("MPESA_SHORTCODE")!;
-    const passkey = Deno.env.get("MPESA_PASSKEY")!;
-    const timestamp = getTimestamp();
-    const password = btoa(`${shortcode}${passkey}${timestamp}`);
+    // Validate UUID format
+    if (!isValidUUID(user_id) || !isValidUUID(payment_id)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid UUID format" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    const baseUrl = Deno.env.get("MPESA_ENV") === "production"
-      ? "https://api.safaricom.co.ke"
-      : "https://sandbox.safaricom.co.ke";
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
 
-    const accessToken = await getMpesaAccessToken();
+    // 🔎 Fetch payment record securely with user verification
+    const { data: payment, error: paymentError } = await supabase
+      .from("bid_fee_payments")
+      .select("*")
+      .eq("id", payment_id)
+      .eq("user_id", user_id)
+      .single();
 
-    const callbackUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mpesa-callback`;
+    if (paymentError || !payment) {
+      console.warn("Payment record not found:", { payment_id, user_id, paymentError });
+      return new Response(
+        JSON.stringify({ error: "Payment record not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    const stkPayload = {
-      BusinessShortCode: shortcode,
-      Password: password,
-      Timestamp: timestamp,
-      TransactionType: "CustomerPayBillOnline",
-      Amount: 55,
-      PartyA: formattedPhone,
-      PartyB: shortcode,
-      PhoneNumber: formattedPhone,
-      CallBackURL: callbackUrl,
-      AccountReference: `BidFee-${payment_id.substring(0, 8)}`,
-      TransactionDesc: "Bid Fee Payment",
-    };
+    // Check payment status and prevent duplicate processing
+    if (payment.status !== "pending") {
+      console.warn("Payment already processed:", { payment_id, status: payment.status });
+      return new Response(
+        JSON.stringify({ 
+          error: `Payment already in ${payment.status} state. Cannot initiate new STK push.` 
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    const stkRes = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(stkPayload),
+    // 🚀 Initiate Tuma STK Push
+    let stkResult;
+    try {
+      stkResult = await initiateTumaStkPush(phone_number, payment_id, BID_AMOUNT);
+    } catch (stkError) {
+      console.error("STK Push initiation failed:", stkError);
+      return new Response(
+        JSON.stringify({ 
+          error: "Failed to initiate STK push. Please try again.",
+          details: stkError.message 
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ✅ Update payment record with Tuma request ID and new status
+    const { error: updateError } = await supabase
+      .from("bid_fee_payments")
+      .update({
+        checkout_request_id: stkResult.request_id,
+        amount: BID_AMOUNT,
+        status: "pending",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", payment_id);
+
+    if (updateError) {
+      console.error("Failed to update payment record:", updateError);
+      return new Response(
+        JSON.stringify({ error: "Payment initiated but record update failed" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log("STK Push initiated successfully:", {
+      payment_id,
+      user_id,
+      request_id: stkResult.request_id,
+      timestamp: new Date().toISOString(),
     });
 
-    const stkData = await stkRes.json();
-
-    if (stkData.ResponseCode === "0") {
-      // Update payment record with checkout request ID
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
-
-      await supabase
-        .from("bid_fee_payments")
-        .update({ checkout_request_id: stkData.CheckoutRequestID })
-        .eq("id", payment_id);
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          checkout_request_id: stkData.CheckoutRequestID,
-          message: "STK push sent. Check your phone.",
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    } else {
-      return new Response(
-        JSON.stringify({ error: stkData.errorMessage || "STK push failed", details: stkData }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-  } catch (error) {
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        success: true,
+        message: "STK push sent successfully. Check your phone to complete payment.",
+        request_id: stkResult.request_id,
+        amount: BID_AMOUNT,
+        currency: "KES",
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  } catch (error) {
+    console.error("Unhandled server error:", {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
+
+    return new Response(
+      JSON.stringify({ 
+        error: "An unexpected error occurred. Please try again later.",
+        details: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      }
     );
   }
 });
+
+// Utility function to validate UUID format
+function isValidUUID(uuid: string): boolean {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}

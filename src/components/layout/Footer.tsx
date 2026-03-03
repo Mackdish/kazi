@@ -51,11 +51,11 @@ const Footer = () => {
               </li>
               <li className="flex items-center gap-2">
                 <Phone className="h-4 w-4" />
-                +1 (555) 123-4567
+                +254791491636
               </li>
               <li className="flex items-center gap-2">
                 <MapPin className="h-4 w-4" />
-                San Francisco, CA
+                Nairobi, Kenya
               </li>
             </ul>
           </div>
@@ -63,7 +63,7 @@ const Footer = () => {
 
         <div className="border-t border-background/10 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-background/50">
-            © 2024 nextgig. All rights reserved.
+            © 2026 nextgig. All rights reserved. Powered by Mackdish Solutions
           </p>
           <div className="flex gap-6 text-sm text-background/50">
             <Link to="/terms" className="hover:text-background transition-colors">Terms of Service</Link>

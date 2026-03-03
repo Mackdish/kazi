@@ -22,35 +22,65 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { CheckoutRequestID, ResultCode, CallbackMetadata } = callback;
+    const {
+      CheckoutRequestID,
+      ResultCode,
+      ResultDesc,
+      MerchantRequestID,
+      Timestamp,
+      CallbackMetadata,
+    } = callback;
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Extract M-Pesa receipt number from callback metadata
+    let mpesaReceipt = "";
+    let mpesaAmount = 0;
+    if (CallbackMetadata?.Item) {
+      const receiptItem = CallbackMetadata.Item.find(
+        (item: any) => item.Name === "MpesaReceiptNumber"
+      );
+      const amountItem = CallbackMetadata.Item.find(
+        (item: any) => item.Name === "Amount"
+      );
+      mpesaReceipt = receiptItem?.Value || "";
+      mpesaAmount = amountItem?.Value || 0;
+    }
+
+    // Build callback metadata object with all response fields
+    // M-Pesa amounts are in KES (Kenyan Shillings)
+    const callbackMetadata = {
+      result_code: ResultCode,
+      result_desc: ResultDesc,
+      merchant_request_id: MerchantRequestID,
+      checkout_request_id: CheckoutRequestID,
+      timestamp: Timestamp,
+      mpesa_receipt_number: mpesaReceipt,
+      amount: mpesaAmount,
+      currency: "KES",
+    };
+
     if (ResultCode === 0) {
       // Payment successful
-      let mpesaReceipt = "";
-      if (CallbackMetadata?.Item) {
-        const receiptItem = CallbackMetadata.Item.find(
-          (item: any) => item.Name === "MpesaReceiptNumber"
-        );
-        mpesaReceipt = receiptItem?.Value || "";
-      }
-
       await supabase
         .from("bid_fee_payments")
         .update({
           status: "completed",
           mpesa_receipt: mpesaReceipt,
+          callback_metadata: callbackMetadata,
         })
         .eq("checkout_request_id", CheckoutRequestID);
     } else {
       // Payment failed
       await supabase
         .from("bid_fee_payments")
-        .update({ status: "failed" })
+        .update({
+          status: "failed",
+          callback_metadata: callbackMetadata,
+        })
         .eq("checkout_request_id", CheckoutRequestID);
     }
 

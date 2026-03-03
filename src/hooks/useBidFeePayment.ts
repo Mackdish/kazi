@@ -58,36 +58,72 @@ export const useInitiateBidFeePayment = () => {
         .insert({
           user_id: userId,
           task_id: taskId,
-          amount: 55,
+          amount: 30,
           phone_number: phoneNumber,
+          status: "pending",
         })
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error("Failed to create payment record:", insertError);
+        throw new Error(`Database error: ${insertError.message}`);
+      }
+
+      if (!payment?.id) {
+        throw new Error("Payment record created but no ID returned");
+      }
+
+      console.log("Payment record created:", { payment_id: payment.id, user_id: userId });
 
       // 2. Trigger STK push via edge function
-      const { data: stkResult, error: stkError } = await supabase.functions.invoke(
-        "mpesa-stk-push",
-        {
-          body: {
-            phone_number: phoneNumber,
-            task_id: taskId,
-            user_id: userId,
-            payment_id: payment.id,
-          },
+      try {
+        const { data: stkResult, error: stkError } = await supabase.functions.invoke(
+          "mpesa-stk-push",
+          {
+            body: {
+              phone_number: phoneNumber,
+              payment_id: payment.id,
+              user_id: userId,
+              task_id: taskId,
+            },
+          }
+        );
+
+        if (stkError) {
+          console.error("Edge function error:", stkError);
+          throw new Error(`STK Push failed: ${stkError.message}`);
         }
-      );
 
-      if (stkError) throw stkError;
-      if (stkResult?.error) throw new Error(stkResult.error);
+        if (stkResult?.error) {
+          console.error("STK Push error response:", stkResult.error);
+          throw new Error(stkResult.error || "STK push failed");
+        }
 
-      return { payment, stkResult };
+        if (!stkResult?.success) {
+          console.error("Unexpected STK response:", stkResult);
+          throw new Error("STK push did not return success");
+        }
+
+        console.log("STK Push successful:", { 
+          request_id: stkResult.request_id,
+          message: stkResult.message 
+        });
+
+        return { payment, stkResult };
+      } catch (stkError) {
+        // Delete the payment record if STK push fails
+        await supabase.from("bid_fee_payments").delete().eq("id", payment.id);
+        throw stkError;
+      }
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["bid-fee-payment", variables.taskId, variables.userId],
       });
+    },
+    onError: (error) => {
+      console.error("Bid fee payment mutation error:", error);
     },
   });
 };

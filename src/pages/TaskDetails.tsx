@@ -164,9 +164,9 @@ const TaskDetails = () => {
   }
 
   const formatBudget = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat("en-KE", {
       style: "currency",
-      currency: "USD",
+      currency: "KES",
       minimumFractionDigits: 0,
     }).format(amount);
   };
@@ -418,7 +418,7 @@ const TaskDetails = () => {
                           <h4 className="font-semibold">Bid Fee Required</h4>
                         </div>
                         <p className="text-sm text-muted-foreground mb-3">
-                          A fee of <span className="font-bold text-foreground">KES 55</span> is required via M-Pesa before you can place a bid.
+                          A fee of <span className="font-bold text-foreground">KES 30</span> is required via M-Pesa before you can place a bid.
                         </p>
 
                         {feePending ? (
@@ -453,7 +453,7 @@ const TaskDetails = () => {
                                   Sending STK Push...
                                 </>
                               ) : (
-                                "Pay KES 55 via M-Pesa"
+                                "Pay KES 30 via M-Pesa"
                               )}
                             </Button>
                           </>

@@ -11,9 +11,9 @@ export const calculateTaskDeposit = (budget: number): number => {
 
 // Format currency for display
 export const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat("en-KE", {
     style: "currency",
-    currency: "USD",
+    currency: "KES",
   }).format(amount);
 };
 
@@ -163,6 +163,46 @@ export const useTaskDeposit = ({ taskId, budget }: UseTaskDepositParams = {}) =>
 
   const depositAmount = budget ? calculateTaskDeposit(budget) : 0;
 
+  // Poll for payment confirmation from callback (for M-Pesa/Tuma)
+  const pollPaymentStatus = useCallback(
+    async (checkoutRequestId: string, maxAttempts = 60, interval = 1000) => {
+      let attempts = 0;
+      
+      while (attempts < maxAttempts) {
+        try {
+          const { data: payment } = await supabase
+            .from("bid_fee_payments")
+            .select("status, mpesa_receipt, callback_metadata")
+            .eq("checkout_request_id", checkoutRequestId)
+            .single();
+
+          if (payment?.status === "completed") {
+            console.log("Payment confirmed:", payment);
+            return { success: true, payment };
+          }
+
+          if (payment?.status === "failed") {
+            console.error("Payment failed");
+            return { success: false, payment };
+          }
+
+          attempts++;
+          if (attempts < maxAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, interval));
+          }
+        } catch (error) {
+          console.error("Error polling payment status:", error);
+          attempts++;
+          await new Promise((resolve) => setTimeout(resolve, interval));
+        }
+      }
+
+      console.warn("Payment confirmation timeout after", maxAttempts, "attempts");
+      return { success: false, timedOut: true };
+    },
+    [supabase]
+  );
+
   const initiatePayment = useCallback(
     async (paymentMethod: "stripe" | "mpesa" | "paypal") => {
       if (!taskId || !budget) {
@@ -182,14 +222,41 @@ export const useTaskDeposit = ({ taskId, budget }: UseTaskDepositParams = {}) =>
           paymentMethod,
         });
 
-        // In a real implementation, we would redirect to payment provider
-        // For now, return the result so the caller can handle payment UI
+        // For M-Pesa/Tuma, poll for payment confirmation
+        if (paymentMethod === "mpesa" && result?.checkout_request_id) {
+          console.log("Polling for M-Pesa payment confirmation...");
+          const confirmationResult = await pollPaymentStatus(
+            result.checkout_request_id,
+            120, // 2 minutes max
+            2000  // poll every 2 seconds
+          );
+
+          if (confirmationResult.success) {
+            toast({
+              title: "Success",
+              description: "Payment confirmed successfully",
+            });
+            return { ...result, confirmed: true };
+          } else if (confirmationResult.timedOut) {
+            toast({
+              title: "Warning",
+              description: "Payment confirmation pending. Please check your status.",
+              variant: "destructive",
+            });
+          }
+        }
+
         return result;
       } catch (error) {
         console.error("Payment initiation error:", error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Payment initiation failed",
+          variant: "destructive",
+        });
       }
     },
-    [taskId, budget, depositAmount, processDepositMutation, toast]
+    [taskId, budget, depositAmount, processDepositMutation, pollPaymentStatus, toast]
   );
 
   const confirmPayment = useCallback(

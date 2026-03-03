@@ -48,8 +48,8 @@ const taskSchema = z.object({
   budget: z
     .string()
     .refine((val) => !isNaN(Number(val)) && Number(val) > 0, "Budget must be a positive number")
-    .refine((val) => Number(val) >= 5, "Minimum budget is $5")
-    .refine((val) => Number(val) <= 100000, "Maximum budget is $100,000"),
+    .refine((val) => Number(val) >= 650, "Minimum budget is KES 650")
+    .refine((val) => Number(val) <= 13000000, "Maximum budget is KES 13,000,000"),
   deadline: z
     .string()
     .refine((val) => {
@@ -76,6 +76,7 @@ const PostTask = () => {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
   const [taskForm, setTaskForm] = useState<TaskFormValues | null>(null);
+  const [mpesaConfirmationState, setMpesaConfirmationState] = useState<"none" | "waiting" | "confirmed" | "failed">("none");
   const { initiatePayment, isProcessing } = useTaskDeposit();
 
   const form = useForm<TaskFormValues>({
@@ -155,25 +156,47 @@ const PostTask = () => {
     try {
       const depositAmount = calculateTaskDeposit(Number(taskForm.budget));
       
+      // Show waiting state for M-Pesa
+      if (method === "mpesa") {
+        setMpesaConfirmationState("waiting");
+        toast.success(
+          "STK prompt sent to your phone. Please enter your M-Pesa PIN to complete the payment."
+        );
+      }
+      
       // Initiate payment (this creates the deposit record and transaction)
       const result = await initiatePayment(method);
 
       if (result?.ok) {
-        // In a real implementation, we would redirect to the payment provider
-        // For now, show a success message indicating the flow
+        // Mark M-Pesa as confirmed if waiting
+        if (method === "mpesa") {
+          setMpesaConfirmationState("confirmed");
+        }
+
         toast.success(
-          `Payment initiated for ${formatCurrency(depositAmount)}. Redirecting to ${method.toUpperCase()}...`
+          method === "mpesa"
+            ? `Payment confirmed for ${formatCurrency(depositAmount)}!`
+            : `Payment initiated for ${formatCurrency(depositAmount)}. Redirecting to ${method.toUpperCase()}...`
         );
 
-        // Simulate payment success (in production, this comes from payment provider callback)
+        // Close modal and redirect
         setTimeout(() => {
           setShowDepositModal(false);
+          setMpesaConfirmationState("none");
           toast.success("Task posted successfully! Freelancers can now submit bids.");
           navigate("/dashboard/client");
         }, 2000);
+      } else if (method === "mpesa") {
+        setMpesaConfirmationState("failed");
+        toast.error("M-Pesa payment did not complete. Please try again.");
+        setTimeout(() => setMpesaConfirmationState("none"), 2000);
       }
     } catch (error: any) {
       console.error("Payment error:", error);
+      if (method === "mpesa") {
+        setMpesaConfirmationState("failed");
+        setTimeout(() => setMpesaConfirmationState("none"), 2000);
+      }
       toast.error(error?.message || "Failed to process payment");
     }
   };
@@ -279,16 +302,16 @@ const PostTask = () => {
                       name="budget"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Budget (USD)</FormLabel>
+                          <FormLabel>Budget (KES)</FormLabel>
                           <FormControl>
                             <div className="relative">
                               <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                               <Input
                                 type="number"
-                                placeholder="500"
+                                placeholder="65000"
                                 className="pl-10"
-                                min="5"
-                                max="100000"
+                                min="650"
+                                max="13000000"
                                 {...field}
                               />
                             </div>
@@ -389,6 +412,7 @@ const PostTask = () => {
         depositAmount={depositAmount}
         onPaymentSelected={handlePaymentSelected}
         isLoading={isProcessing}
+        mpesaConfirmationState={mpesaConfirmationState}
       />
 
       <Footer />

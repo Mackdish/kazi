@@ -21,6 +21,7 @@ interface DepositPaymentModalProps {
   depositAmount: number;
   onPaymentSelected: (method: "stripe" | "mpesa" | "paypal") => Promise<void>;
   isLoading?: boolean;
+  mpesaConfirmationState?: "none" | "waiting" | "confirmed" | "failed";
 }
 
 export const DepositPaymentModal = ({
@@ -31,6 +32,7 @@ export const DepositPaymentModal = ({
   depositAmount,
   onPaymentSelected,
   isLoading = false,
+  mpesaConfirmationState = "none",
 }: DepositPaymentModalProps) => {
   const [selectedMethod, setSelectedMethod] = useState<"stripe" | "mpesa" | "paypal" | "">("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -134,6 +136,34 @@ export const DepositPaymentModal = ({
               </div>
             </RadioGroup>
           </div>
+
+          {/* M-Pesa Confirmation Status */}
+          {mpesaConfirmationState === "waiting" && (
+            <Alert className="border-blue-200 bg-blue-50">
+              <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+              <AlertDescription className="text-blue-800 ml-2">
+                Waiting for M-Pesa confirmation... Please check your phone and enter your PIN.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {mpesaConfirmationState === "confirmed" && (
+            <Alert className="border-green-200 bg-green-50">
+              <AlertCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800 ml-2">
+                Payment confirmed! Processing your task...
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {mpesaConfirmationState === "failed" && (
+            <Alert className="border-red-200 bg-red-50">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-red-800 ml-2">
+                M-Pesa payment failed. Please try again.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Action Buttons */}
           <div className="flex gap-3">
